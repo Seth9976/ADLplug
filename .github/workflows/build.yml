@@ -1,0 +1,40 @@
+name: Windows plugins  
+  
+on:  
+  push:  
+    tags: ["v*"]  
+  workflow_dispatch:  
+  
+jobs:  
+  build:  
+    runs-on: windows-2019  
+    strategy:  
+      matrix:  
+        chip: [OPL3, OPN2]  
+    steps:  
+      - uses: actions/checkout@v4  
+        with:  
+          submodules: recursive  
+  
+      - name: Configure  
+        run: cmake -B build -G "Visual Studio 16 2019" -A x64 -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_Jack=OFF -DADLplug_Standalone=ON -DCMAKE_BUILD_TYPE=Release  
+  
+      - name: Build  
+        run: cmake --build build --config Release --parallel  
+  
+      - name: Locate built binaries  
+        shell: pwsh  
+        run: $dlls = Get-ChildItem -Path build -Recurse -Filter *.dll | Select-Object -ExpandProperty FullName; $exes = Get-ChildItem -Path build -Recurse -Filter *.exe | Select-Object -ExpandProperty FullName; $dlls | ForEach-Object { "DLL: $_" }; $exes | ForEach-Object { "EXE: $_" }; "DLLS=$($dlls -join '|')" >> $env:GITHUB_ENV; "EXES=$($exes -join '|')" >> $env:GITHUB_ENV  
+  
+      - name: Rename VST3 dll to .vst3  
+        shell: pwsh  
+        run: Get-ChildItem -Path build -Recurse -Filter *.dll | Where-Object { $_.FullName -match 'VST3|vst3' } | ForEach-Object { Move-Item $_.FullName ($_.FullName -replace '\.dll$','.vst3') }  
+  
+      - name: Package  
+        shell: pwsh  
+        run: $name = ('${{ matrix.chip }}' -replace 'OPL3','ADLplug' -replace 'OPN2','OPNplug'); $files = Get-ChildItem -Path build -Recurse -Include *.dll,*.vst3,*.exe | Select-Object -ExpandProperty FullName; Compress-Archive -Path $files -DestinationPath "$name-win64.zip"  
+  
+      - uses: actions/upload-artifact@v4  
+        with:  
+          name: ${{ matrix.chip }}-win64  
+          path: "*-win64.zip"
