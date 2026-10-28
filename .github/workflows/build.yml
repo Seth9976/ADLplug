@@ -9,7 +9,7 @@ on:
   pull_request:  
   
 jobs:  
-  build_windows_vst:  
+  build-windows:  
     name: ${{ matrix.plugin }} Windows x64  
     runs-on: windows-2019  
   
@@ -23,70 +23,48 @@ jobs:
             plugin: OPNplug  
   
     steps:  
-      - name: Checkout repository  
+      - name: checkout-code  
         uses: actions/checkout@v4  
         with:  
           submodules: recursive  
   
-      - name: Configure git line endings  
-        shell: bash  
-        run: git config --global core.autocrlf input  
+      - name: extract-vst2-sdk  
+        if: ${{ hashFiles('vstsdk2.4.zip') != '' }}  
+        run: Expand-Archive -Path "vstsdk2.4.zip" -DestinationPath "thirdparty/vstsdk2.4" -Force  
   
-      - name: Extract optional VST2 SDK  
-        shell: pwsh  
-        run: if (Test-Path "vstsdk2.4.zip") { Expand-Archive -Path "vstsdk2.4.zip" -DestinationPath "thirdparty/vstsdk2.4" -Force }  
+      - name: configure-project  
+        run: cmake -G "Visual Studio 16 2019" -A x64 -T host=x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF -S . -B build  
   
-      - name: Verify VST2 SDK  
-        shell: pwsh  
-        run: if (Test-Path "thirdparty/vstsdk2.4") { Get-ChildItem -Path "thirdparty/vstsdk2.4" -Recurse -Force }  
+      - name: build-vst2  
+        run: cmake --build build --config Release --target ADLplug_VST2 --parallel  
   
-      - name: Setup MSVC Developer Environment  
-        uses: ilammy/msvc-dev-cmd@v1  
-        with:  
-          arch: x64  
+      - name: build-vst3  
+        run: cmake --build build --config Release --target ADLplug_VST3 --parallel  
   
-      - name: Setup Ninja  
-        uses: seanmiddleditch/gha-setup-ninja@v5  
-  
-      - name: Configure CMake  
-        shell: cmd  
-        run: cmake -S . -B build -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF  
-  
-      - name: Build VST2 and VST3  
-        shell: cmd  
-        run: cmake --build build --config Release --target ADLplug_VST2 ADLplug_VST3 --parallel  
-  
-      - name: Inspect generated binary tree  
-        shell: pwsh  
+      - name: inspect-binary-tree  
         run: Get-ChildItem -Path "build" -Recurse -Force  
   
-      - name: Create VST2 artifact directory  
-        shell: pwsh  
-        run: New-Item -ItemType Directory -Path "artifact\vst2" -Force  
+      - name: create-vst2-dist-dir  
+        run: New-Item -ItemType Directory -Force -Path "dist\vst2"  
   
-      - name: Create VST3 artifact directory  
-        shell: pwsh  
-        run: New-Item -ItemType Directory -Path "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win" -Force  
+      - name: create-vst3-dist-dir  
+        run: New-Item -ItemType Directory -Force -Path "dist\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win"  
   
-      - name: Create VST3 resources directory  
-        shell: pwsh  
-        run: New-Item -ItemType Directory -Path "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\Resources" -Force  
+      - name: create-vst3-resources-dir  
+        run: New-Item -ItemType Directory -Force -Path "dist\vst3\${{ matrix.plugin }}.vst3\Contents\Resources"  
   
-      - name: Copy detected VST2 binary  
-        shell: pwsh  
-        run: Copy-Item -Path ([Linq.Enumerable]::First(([IO.Directory]::EnumerateFiles("$PWD\build", "*.dll", "AllDirectories")).Where({ $_ -like "*\vst2\*" }))) -Destination "artifact\vst2\${{ matrix.plugin }}.dll" -Force  
+      - name: copy-detected-vst2  
+        run: Copy-Item -Path (Get-ChildItem -Path "build\vst2" -Recurse -File -Filter "*.dll").FullName -Destination "dist\vst2\${{ matrix.plugin }}.dll" -Force  
   
-      - name: Copy detected VST3 binary  
-        shell: pwsh  
-        run: Copy-Item -Path ([Linq.Enumerable]::First(([IO.Directory]::EnumerateFiles("$PWD\build", "*.dll", "AllDirectories")).Where({ $_ -like "*\vst3\*" }))) -Destination "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win\${{ matrix.plugin }}.vst3" -Force  
+      - name: copy-detected-vst3  
+        run: Copy-Item -Path (Get-ChildItem -Path "build\vst3" -Recurse -File -Filter "*.dll").FullName -Destination "dist\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win\${{ matrix.plugin }}.vst3" -Force  
   
-      - name: Inspect packaged plugin tree  
-        shell: pwsh  
-        run: Get-ChildItem -Path "artifact" -Recurse -Force  
+      - name: inspect-dist-tree  
+        run: Get-ChildItem -Path "dist" -Recurse -Force  
   
-      - name: Upload Windows plugins  
+      - name: upload-artifact  
         uses: actions/upload-artifact@v4  
         with:  
           name: ${{ matrix.plugin }}-windows-x64-vst2-vst3  
-          path: artifact  
+          path: dist  
           if-no-files-found: error
