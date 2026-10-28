@@ -11,7 +11,7 @@ on:
 jobs:  
   build-windows:  
     name: ${{ matrix.plugin }} Windows x64  
-    runs-on: windows-2019  
+    runs-on: windows-2022  
   
     strategy:  
       fail-fast: false  
@@ -33,7 +33,7 @@ jobs:
         run: Expand-Archive -Path "vstsdk2.4.zip" -DestinationPath "thirdparty/vstsdk2.4" -Force  
   
       - name: configure-project  
-        run: cmake -G "Visual Studio 16 2019" -A x64 -T host=x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF -S . -B build  
+        run: cmake -G "Visual Studio 17 2022" -A x64 -T host=x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF -S . -B build  
   
       - name: build-vst2  
         run: cmake --build build --config Release --target ADLplug_VST2 --parallel  
