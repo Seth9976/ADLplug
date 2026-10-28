@@ -11,7 +11,7 @@ on:
 jobs:  
   build_windows_vst:  
     name: ${{ matrix.plugin }} Windows x64  
-    runs-on: windows-latest  
+    runs-on: windows-2019  
   
     strategy:  
       fail-fast: false  
@@ -50,7 +50,7 @@ jobs:
   
       - name: Configure CMake  
         shell: cmd  
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF -Wno-dev  
+        run: cmake -S . -B build -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF  
   
       - name: Build VST2 and VST3  
         shell: cmd  
