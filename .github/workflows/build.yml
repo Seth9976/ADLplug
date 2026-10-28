@@ -1,40 +1,90 @@
-name: Windows plugins  
+name: Windows VST2 VST3  
   
 on:  
   push:  
-    tags: ["v*"]  
+    branches:  
+      - master  
+      - main  
+  pull_request:  
   workflow_dispatch:  
+  
+permissions:  
+  contents: read  
   
 jobs:  
   build:  
+    name: 构建 ${{ matrix.name }} Windows x64  
     runs-on: windows-2019  
+  
     strategy:  
+      fail-fast: false  
       matrix:  
-        chip: [OPL3, OPN2]  
+        include:  
+          - chip: OPL3  
+            name: ADLplug  
+          - chip: OPN2  
+            name: OPNplug  
+  
+    env:  
+      BUILD_DIR: build  
+  
     steps:  
-      - uses: actions/checkout@v4  
+      - name: 检出源码  
+        uses: actions/checkout@v4  
         with:  
           submodules: recursive  
   
-      - name: Configure  
-        run: cmake -B build -G "Visual Studio 16 2019" -A x64 -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_Jack=OFF -DADLplug_Standalone=ON -DCMAKE_BUILD_TYPE=Release  
-  
-      - name: Build  
-        run: cmake --build build --config Release --parallel  
-  
-      - name: Locate built binaries  
+      - name: 配置 MSVC x64 构建  
         shell: pwsh  
-        run: $dlls = Get-ChildItem -Path build -Recurse -Filter *.dll | Select-Object -ExpandProperty FullName; $exes = Get-ChildItem -Path build -Recurse -Filter *.exe | Select-Object -ExpandProperty FullName; $dlls | ForEach-Object { "DLL: $_" }; $exes | ForEach-Object { "EXE: $_" }; "DLLS=$($dlls -join '|')" >> $env:GITHUB_ENV; "EXES=$($exes -join '|')" >> $env:GITHUB_ENV  
+        run: cmake -S . -B "$env:BUILD_DIR" -G "Visual Studio 16 2019" -A x64 -DCMAKE_SYSTEM_VERSION=10.0 -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF  
   
-      - name: Rename VST3 dll to .vst3  
+      - name: 编译 VST2 和 VST3  
         shell: pwsh  
-        run: Get-ChildItem -Path build -Recurse -Filter *.dll | Where-Object { $_.FullName -match 'VST3|vst3' } | ForEach-Object { Move-Item $_.FullName ($_.FullName -replace '\.dll$','.vst3') }  
+        run: cmake --build "$env:BUILD_DIR" --config Release --target ADLplug_VST2 ADLplug_VST3 --parallel  
   
-      - name: Package  
+      - name: 主动列出二进制目录结构  
         shell: pwsh  
-        run: $name = ('${{ matrix.chip }}' -replace 'OPL3','ADLplug' -replace 'OPN2','OPNplug'); $files = Get-ChildItem -Path build -Recurse -Include *.dll,*.vst3,*.exe | Select-Object -ExpandProperty FullName; Compress-Archive -Path $files -DestinationPath "$name-win64.zip"  
+        run: Get-ChildItem -Path "$env:BUILD_DIR" -Recurse -Force  
   
-      - uses: actions/upload-artifact@v4  
+      - name: 探测 VST2 二进制位置  
+        shell: pwsh  
+        run: [IO.File]::AppendAllText($env:GITHUB_OUTPUT, 'VST2=' + [Linq.Enumerable]::First([IO.Directory]::EnumerateFiles($PWD.Path + '\' + $env:BUILD_DIR, '*.dll', 'AllDirectories')).Where({ $_ -like '*\vst2\*' }) + [Environment]::NewLine)  
+  
+      - name: 探测 VST3 二进制位置  
+        shell: pwsh  
+        run: [IO.File]::AppendAllText($env:GITHUB_OUTPUT, 'VST3=' + [Linq.Enumerable]::First([IO.Directory]::EnumerateFiles($PWD.Path + '\' + $env:BUILD_DIR, '*.dll', 'AllDirectories')).Where({ $_ -like '*\vst3\*' }) + [Environment]::NewLine)  
+  
+      - name: 创建 VST2 发布目录  
+        shell: pwsh  
+        run: New-Item -ItemType Directory -Path "dist\vst2" -Force  
+  
+      - name: 收集真实 VST2 DLL  
+        shell: pwsh  
+        run: Copy-Item -Path $env:VST2 -Destination "dist\vst2\${{ matrix.name }}.dll" -Force  
+  
+      - name: 创建标准 VST3 bundle 目录  
+        shell: pwsh  
+        run: New-Item -ItemType Directory -Path "dist\vst3\${{ matrix.name }}.vst3\Contents\x86_64-win" -Force  
+  
+      - name: 封装真实 VST3 二进制  
+        shell: pwsh  
+        run: Copy-Item -Path $env:VST3 -Destination "dist\vst3\${{ matrix.name }}.vst3\Contents\x86_64-win\${{ matrix.name }}.vst3" -Force  
+  
+      - name: 创建 VST3 资源目录  
+        shell: pwsh  
+        run: New-Item -ItemType Directory -Path "dist\vst3\${{ matrix.name }}.vst3\Contents\Resources" -Force  
+  
+      - name: 展示最终插件结构  
+        shell: pwsh  
+        run: Get-ChildItem -Path "dist" -Recurse -Force  
+  
+      - name: 压缩 Windows 插件  
+        shell: pwsh  
+        run: Compress-Archive -Path "dist\*" -DestinationPath "${{ matrix.name }}-windows-x64-vst2-vst3.zip" -Force  
+  
+      - name: 上传插件文件  
+        uses: actions/upload-artifact@v4  
         with:  
-          name: ${{ matrix.chip }}-win64  
-          path: "*-win64.zip"
+          name: ${{ matrix.name }}-windows-x64-vst2-vst3  
+          path: ${{ matrix.name }}-windows-x64-vst2-vst3.zip  
+          if-no-files-found: error
