@@ -1,90 +1,92 @@
-name: Windows VST2 VST3  
+name: Build Windows VST2 and VST3  
   
 on:  
+  workflow_dispatch:  
   push:  
     branches:  
       - master  
       - main  
   pull_request:  
-  workflow_dispatch:  
-  
-permissions:  
-  contents: read  
   
 jobs:  
-  build:  
-    name: 构建 ${{ matrix.name }} Windows x64  
-    runs-on: windows-2019  
+  build_windows_vst:  
+    name: ${{ matrix.plugin }} Windows x64  
+    runs-on: windows-latest  
   
     strategy:  
       fail-fast: false  
       matrix:  
         include:  
           - chip: OPL3  
-            name: ADLplug  
+            plugin: ADLplug  
           - chip: OPN2  
-            name: OPNplug  
-  
-    env:  
-      BUILD_DIR: build  
+            plugin: OPNplug  
   
     steps:  
-      - name: 检出源码  
+      - name: Checkout repository  
         uses: actions/checkout@v4  
         with:  
           submodules: recursive  
   
-      - name: 配置 MSVC x64 构建  
-        shell: pwsh  
-        run: cmake -S . -B "$env:BUILD_DIR" -G "Visual Studio 16 2019" -A x64 -DCMAKE_SYSTEM_VERSION=10.0 -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF  
+      - name: Configure git line endings  
+        shell: bash  
+        run: git config --global core.autocrlf input  
   
-      - name: 编译 VST2 和 VST3  
+      - name: Extract optional VST2 SDK  
         shell: pwsh  
-        run: cmake --build "$env:BUILD_DIR" --config Release --target ADLplug_VST2 ADLplug_VST3 --parallel  
+        run: if (Test-Path "vstsdk2.4.zip") { Expand-Archive -Path "vstsdk2.4.zip" -DestinationPath "thirdparty/vstsdk2.4" -Force }  
   
-      - name: 主动列出二进制目录结构  
+      - name: Verify VST2 SDK  
         shell: pwsh  
-        run: Get-ChildItem -Path "$env:BUILD_DIR" -Recurse -Force  
+        run: if (Test-Path "thirdparty/vstsdk2.4") { Get-ChildItem -Path "thirdparty/vstsdk2.4" -Recurse -Force }  
   
-      - name: 探测 VST2 二进制位置  
+      - name: Setup MSVC Developer Environment  
+        uses: ilammy/msvc-dev-cmd@v1  
+        with:  
+          arch: x64  
+  
+      - name: Setup Ninja  
+        uses: seanmiddleditch/gha-setup-ninja@v5  
+  
+      - name: Configure CMake  
+        shell: cmd  
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DADLplug_CHIP=${{ matrix.chip }} -DADLplug_VST2=ON -DADLplug_VST3=ON -DADLplug_LV2=OFF -DADLplug_AU=OFF -DADLplug_Standalone=OFF -DADLplug_Jack=OFF -DADLplug_PCH=OFF -Wno-dev  
+  
+      - name: Build VST2 and VST3  
+        shell: cmd  
+        run: cmake --build build --config Release --target ADLplug_VST2 ADLplug_VST3 --parallel  
+  
+      - name: Inspect generated binary tree  
         shell: pwsh  
-        run: [IO.File]::AppendAllText($env:GITHUB_OUTPUT, 'VST2=' + [Linq.Enumerable]::First([IO.Directory]::EnumerateFiles($PWD.Path + '\' + $env:BUILD_DIR, '*.dll', 'AllDirectories')).Where({ $_ -like '*\vst2\*' }) + [Environment]::NewLine)  
+        run: Get-ChildItem -Path "build" -Recurse -Force  
   
-      - name: 探测 VST3 二进制位置  
+      - name: Create VST2 artifact directory  
         shell: pwsh  
-        run: [IO.File]::AppendAllText($env:GITHUB_OUTPUT, 'VST3=' + [Linq.Enumerable]::First([IO.Directory]::EnumerateFiles($PWD.Path + '\' + $env:BUILD_DIR, '*.dll', 'AllDirectories')).Where({ $_ -like '*\vst3\*' }) + [Environment]::NewLine)  
+        run: New-Item -ItemType Directory -Path "artifact\vst2" -Force  
   
-      - name: 创建 VST2 发布目录  
+      - name: Create VST3 artifact directory  
         shell: pwsh  
-        run: New-Item -ItemType Directory -Path "dist\vst2" -Force  
+        run: New-Item -ItemType Directory -Path "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win" -Force  
   
-      - name: 收集真实 VST2 DLL  
+      - name: Create VST3 resources directory  
         shell: pwsh  
-        run: Copy-Item -Path $env:VST2 -Destination "dist\vst2\${{ matrix.name }}.dll" -Force  
+        run: New-Item -ItemType Directory -Path "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\Resources" -Force  
   
-      - name: 创建标准 VST3 bundle 目录  
+      - name: Copy detected VST2 binary  
         shell: pwsh  
-        run: New-Item -ItemType Directory -Path "dist\vst3\${{ matrix.name }}.vst3\Contents\x86_64-win" -Force  
+        run: Copy-Item -Path ([Linq.Enumerable]::First(([IO.Directory]::EnumerateFiles("$PWD\build", "*.dll", "AllDirectories")).Where({ $_ -like "*\vst2\*" }))) -Destination "artifact\vst2\${{ matrix.plugin }}.dll" -Force  
   
-      - name: 封装真实 VST3 二进制  
+      - name: Copy detected VST3 binary  
         shell: pwsh  
-        run: Copy-Item -Path $env:VST3 -Destination "dist\vst3\${{ matrix.name }}.vst3\Contents\x86_64-win\${{ matrix.name }}.vst3" -Force  
+        run: Copy-Item -Path ([Linq.Enumerable]::First(([IO.Directory]::EnumerateFiles("$PWD\build", "*.dll", "AllDirectories")).Where({ $_ -like "*\vst3\*" }))) -Destination "artifact\vst3\${{ matrix.plugin }}.vst3\Contents\x86_64-win\${{ matrix.plugin }}.vst3" -Force  
   
-      - name: 创建 VST3 资源目录  
+      - name: Inspect packaged plugin tree  
         shell: pwsh  
-        run: New-Item -ItemType Directory -Path "dist\vst3\${{ matrix.name }}.vst3\Contents\Resources" -Force  
+        run: Get-ChildItem -Path "artifact" -Recurse -Force  
   
-      - name: 展示最终插件结构  
-        shell: pwsh  
-        run: Get-ChildItem -Path "dist" -Recurse -Force  
-  
-      - name: 压缩 Windows 插件  
-        shell: pwsh  
-        run: Compress-Archive -Path "dist\*" -DestinationPath "${{ matrix.name }}-windows-x64-vst2-vst3.zip" -Force  
-  
-      - name: 上传插件文件  
+      - name: Upload Windows plugins  
         uses: actions/upload-artifact@v4  
         with:  
-          name: ${{ matrix.name }}-windows-x64-vst2-vst3  
-          path: ${{ matrix.name }}-windows-x64-vst2-vst3.zip  
+          name: ${{ matrix.plugin }}-windows-x64-vst2-vst3  
+          path: artifact  
           if-no-files-found: error
